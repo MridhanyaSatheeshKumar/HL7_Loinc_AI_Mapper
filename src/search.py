@@ -6,20 +6,16 @@ from sentence_transformers import SentenceTransformer
 
 print("Loading LOINC search resources...")
 
-# Load processed LOINC data
 df = pd.read_csv("data/processed/loinc_cleaned.csv")
 
-# Load embeddings
 with open("data/processed/embeddings.pkl", "rb") as f:
     X = pickle.load(f)
 
-# Load embedding model
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 print("Search system ready.")
 
 
-# Clean camelCase input
 def clean_input(text):
 
     text = re.sub(r'([a-z])([A-Z])', r'\1 \2', str(text))
@@ -27,22 +23,19 @@ def clean_input(text):
     return text.lower()
 
 
-# Expand query using domain knowledge
 def expand_query(query):
 
     mapping = {
 
         "cycling": "bicycle riding exercise physical activity",
 
-        "floors climbed": "stairs stair climbing physical activity",
-
-        "stairs": "stairs climbed physical activity",
+        "stairs": "stairs climbed stair climbing physical activity",
 
         "walking": "walking distance steps physical activity",
 
         "running": "running distance speed physical activity",
 
-        "step count": "steps walking activity count",
+        "step": "steps walking activity count",
 
         "vo2": "oxygen consumption fitness exercise capacity",
 
@@ -63,7 +56,6 @@ def expand_query(query):
     return query
 
 
-# Add contextual keywords
 def enrich_query(query):
 
     if "distance" in query:
@@ -85,17 +77,18 @@ def enrich_query(query):
     return query
 
 
-# Remove bad LOINC candidates
 def is_valid_loinc(row):
 
     name = row["LONG_COMMON_NAME"].lower()
 
     bad_terms = [
+
         "promis",
         "phenx",
         "questionnaire",
         "survey",
         "assessment"
+
     ]
 
     for term in bad_terms:
@@ -107,7 +100,6 @@ def is_valid_loinc(row):
     return True
 
 
-# Domain score boosting
 def boost_score(row, query):
 
     text = row["LONG_COMMON_NAME"].lower()
@@ -153,7 +145,6 @@ def boost_score(row, query):
     return float(score)
 
 
-# Confidence scoring (NEW STEP)
 def confidence_level(score):
 
     if score > 0.80:
@@ -173,7 +164,25 @@ def confidence_level(score):
         return "Very Low"
 
 
-# Main semantic search
+def match_status(score):
+
+    if score > 0.80:
+
+        return "GOOD_MATCH"
+
+    elif score > 0.65:
+
+        return "REVIEW"
+
+    elif score > 0.50:
+
+        return "LOW_CONFIDENCE"
+
+    else:
+
+        return "NO_MATCH"
+
+
 def search_loinc(query, top_k=10):
 
     query = clean_input(query)
@@ -182,16 +191,10 @@ def search_loinc(query, top_k=10):
 
     query = enrich_query(query)
 
-
-    # Create embedding for query
     query_vec = model.encode([query])
 
-
-    # Compute similarity
     scores = cosine_similarity(query_vec, X)[0]
 
-
-    # Get top candidates
     top_idx = scores.argsort()[::-1][:top_k]
 
     results = df.iloc[top_idx].copy()
@@ -199,37 +202,56 @@ def search_loinc(query, top_k=10):
     results["similarity"] = scores[top_idx]
 
 
-    # Filter invalid rows
     results = results[results.apply(is_valid_loinc, axis=1)]
 
-    # fallback if empty after filtering
+
     if results.empty:
 
-        top_idx = scores.argsort()[::-1][:5]
+        return pd.DataFrame([{
 
-        results = df.iloc[top_idx].copy()
+            "LOINC_NUM":"NONE",
 
-        results["similarity"] = scores[top_idx]
+            "LONG_COMMON_NAME":"No suitable LOINC found",
 
-    # Boost domain relevance
+            "similarity":0.0,
+
+            "boost":0.0,
+
+            "final_score":0.0,
+
+            "confidence":"Very Low",
+
+            "status":"NO_MATCH"
+
+        }])
+
+
     results["boost"] = results.apply(
 
-        lambda row: float(boost_score(row, query)),
+        lambda row: boost_score(row, query),
 
         axis=1
 
     )
 
 
-    # Final score
     results["final_score"] = results["similarity"] + results["boost"]
 
 
-    # Confidence label
-    results["confidence"] = results["final_score"].apply(confidence_level)
+    results["confidence"] = results["final_score"].apply(
+
+        confidence_level
+
+    )
 
 
-    # Sort final ranking
+    results["status"] = results["final_score"].apply(
+
+        match_status
+
+    )
+
+
     results = results.sort_values(
 
         by="final_score",
@@ -237,6 +259,27 @@ def search_loinc(query, top_k=10):
         ascending=False
 
     )
+
+
+    if results.iloc[0]["final_score"] < 0.50:
+
+        return pd.DataFrame([{
+
+            "LOINC_NUM":"NONE",
+
+            "LONG_COMMON_NAME":"No suitable LOINC found",
+
+            "similarity":results.iloc[0]["similarity"],
+
+            "boost":results.iloc[0]["boost"],
+
+            "final_score":results.iloc[0]["final_score"],
+
+            "confidence":"Very Low",
+
+            "status":"NO_MATCH"
+
+        }])
 
 
     return results.head(3)[[
@@ -251,35 +294,35 @@ def search_loinc(query, top_k=10):
 
         "final_score",
 
-        "confidence"
+        "confidence",
+
+        "status"
 
     ]]
 
 
-# Mapping function used by Excel script
 def map_loinc(code_value, record_name, top_k=3):
 
     query = f"{code_value} {record_name}"
 
     results = search_loinc(query, top_k)
 
-
     candidates = []
-
 
     for _, row in results.iterrows():
 
         candidates.append({
 
-            "LOINC_NUM": row["LOINC_NUM"],
+            "LOINC_NUM": row.get("LOINC_NUM","NONE"),
 
-            "LONG_COMMON_NAME": row["LONG_COMMON_NAME"],
+            "LONG_COMMON_NAME": row.get("LONG_COMMON_NAME",""),
 
-            "score": row["final_score"],
+            "score": row.get("final_score",0),
 
-            "confidence": row["confidence"]
+            "confidence": row.get("confidence","Very Low"),
+
+            "status": row.get("status","NO_MATCH")
 
         })
-
 
     return candidates
