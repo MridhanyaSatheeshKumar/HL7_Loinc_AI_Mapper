@@ -1,7 +1,22 @@
+# Virtual environment
 venv/
+
+# Python cache
 __pycache__/
 *.pyc
+
+# Data
 data/raw/
+data/output/
 data/processed/
+
+# Models
 *.pkl
 *.npy
+
+# Personal notes
+journal.md
+pipeline.md
+
+# OS junk - just for best practice
+.DS_Store

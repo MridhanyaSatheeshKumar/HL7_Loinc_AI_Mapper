@@ -22,6 +22,71 @@ def clean_input(text):
 
     return text.lower()
 
+def classify_domain(text):
+
+    t = text.lower()
+
+    # Measurement domains (LOINC likely exists)
+    measurement_keywords = [
+
+        "rate","pressure","temperature","distance","energy",
+        "oxygen","vo2","heart","pulse","cadence","speed",
+        "power","glucose","weight","height","bmi",
+        "respiratory","flow","volume","sleep","snore",
+        "blood","body","water","nutrition","vitamin"
+    ]
+
+    # Activity domains (sometimes LOINC exists)
+    activity_keywords = [
+
+        "running","walking","swimming","exercise",
+        "fitness","training","sports","workout",
+        "cycling","rowing","yoga"
+    ]
+
+    # Symptoms (sometimes LOINC)
+    symptom_keywords = [
+
+        "pain","fever","fatigue","nausea","cough",
+        "dizziness","vomiting","headache"
+    ]
+
+    # Emotions (LOINC usually no)
+    emotion_keywords = [
+
+        "happy","sad","angry","anxious","stressed",
+        "worried","joyful","frustrated","content"
+    ]
+
+    # Lifestyle categories (no LOINC)
+    lifestyle_keywords = [
+
+        "family","work","community","travel",
+        "hobbies","money","dating","weather"
+    ]
+
+
+    if any(x in t for x in measurement_keywords):
+
+        return "MEASUREMENT"
+
+    if any(x in t for x in activity_keywords):
+
+        return "ACTIVITY"
+
+    if any(x in t for x in symptom_keywords):
+
+        return "SYMPTOM"
+
+    if any(x in t for x in emotion_keywords):
+
+        return "EMOTION"
+
+    if any(x in t for x in lifestyle_keywords):
+
+        return "LIFESTYLE"
+
+    return "UNKNOWN"
 
 def expand_query(query):
 
@@ -41,8 +106,17 @@ def expand_query(query):
 
         "calories": "energy expenditure calories burned",
 
-        "distance": "length distance travel"
+        "distance": "length distance travel",
 
+        "heart": "heart rate cardiac pulse cardiovascular",
+
+        "sleep": "sleep stage rem deep light",
+
+        "mood": "emotion mental stress anxiety",
+
+        "temperature": "body temperature measurement",
+
+        "respiratory": "breathing respiration oxygen"
     }
 
     query = query.lower()
@@ -99,7 +173,6 @@ def is_valid_loinc(row):
 
     return True
 
-
 def boost_score(row, query):
 
     text = row["LONG_COMMON_NAME"].lower()
@@ -109,45 +182,105 @@ def boost_score(row, query):
     score = 0
 
 
-    if "activity" in text:
+    # Activity domain
+    if any(x in q for x in ["activity","exercise","fitness"]):
 
-        score += 0.25
+        if any(x in text for x in ["activity","exercise","physical"]):
 
-    if "exercise" in text:
-
-        score += 0.25
-
-    if "physical" in text:
-
-        score += 0.2
+            score += 0.35
 
 
-    if "distance" in q and "distance" in text:
+    # Energy domain
+    if any(x in q for x in ["energy","calorie","burn"]):
 
-        score += 0.4
+        if any(x in text for x in ["energy","calorie","metabolic"]):
 
-
-    if "energy" in q and "energy" in text:
-
-        score += 0.4
+            score += 0.50
 
 
-    if "step" in q and ("step" in text or "walk" in text):
+    # Distance domain
+    if "distance" in q:
 
-        score += 0.4
+        if any(x in text for x in ["distance","walk","run","travel"]):
+
+            score += 0.45
 
 
-    if "time" in q and "time" in text:
+    # Step domain
+    if any(x in q for x in ["step","stairs","flights"]):
 
-        score += 0.3
+        if any(x in text for x in ["step","stairs","climb","walk"]):
+
+            score += 0.45
+
+
+    # Heart domain
+    if any(x in q for x in ["heart","cardio","pulse","hr"]):
+
+        if any(x in text for x in ["heart","cardiac","pulse"]):
+
+            score += 0.50
+
+
+    # Oxygen fitness domain
+    if any(x in q for x in ["vo2","oxygen","fitness"]):
+
+        if any(x in text for x in ["oxygen","vo2","fitness"]):
+
+            score += 0.55
+
+
+    # Speed / cadence domain
+    if any(x in q for x in ["speed","cadence","pace","power"]):
+
+        if any(x in text for x in ["speed","cadence","power"]):
+
+            score += 0.45
+
+
+    # Time domain
+    if any(x in q for x in ["time","duration","minutes"]):
+
+        if any(x in text for x in ["time","duration"]):
+
+            score += 0.35
+
+
+    # Sleep domain
+    if "sleep" in q:
+
+        if "sleep" in text:
+
+            score += 0.50
+
+
+    # Mood / mental domain (important for your dataset)
+    if any(x in q for x in ["mood","emotion","stress","anxiety"]):
+
+        if any(x in text for x in ["mood","emotion","mental"]):
+
+            score += 0.40
+
+
+    # Temperature domain
+    if "temperature" in q:
+
+        if "temperature" in text:
+
+            score += 0.50
+
+
+    # Penalize surveys
+    if any(x in text for x in ["promis","phenx","survey"]):
+
+        score -= 0.5
 
 
     return float(score)
 
-
 def confidence_level(score):
 
-    if score > 0.80:
+    if score > 0.85:
 
         return "High"
 
@@ -305,9 +438,33 @@ def map_loinc(code_value, record_name, top_k=3):
 
     query = f"{code_value} {record_name}"
 
+    domain = classify_domain(query)
+
+
+    # Skip domains that shouldn't map to LOINC
+    if domain in ["EMOTION","LIFESTYLE"]:
+
+        return [{
+
+            "LOINC_NUM":"NONE",
+
+            "LONG_COMMON_NAME":"Not appropriate for LOINC",
+
+            "score":0,
+
+            "confidence":"Very Low",
+
+            "status":"DOMAIN_SKIP",
+
+            "domain":domain
+
+        }]
+
+
     results = search_loinc(query, top_k)
 
     candidates = []
+
 
     for _, row in results.iterrows():
 
@@ -321,8 +478,11 @@ def map_loinc(code_value, record_name, top_k=3):
 
             "confidence": row.get("confidence","Very Low"),
 
-            "status": row.get("status","NO_MATCH")
+            "status": row.get("status","NO_MATCH"),
+
+            "domain":domain
 
         })
+
 
     return candidates

@@ -1,5 +1,5 @@
 import pandas as pd
-from src.search import map_loinc
+from search import map_loinc
 
 # 📥 Load input Excel
 df = pd.read_excel(
@@ -38,21 +38,39 @@ for _, row in df.iterrows():
 
         # 📦 Store results
         results.append({
+
             "Code value": code,
             "Record": record_name,
 
-            "LOINC_top1": top_matches[0]["LOINC_NUM"],
-            "LOINC_name_1": top_matches[0]["LONG_COMMON_NAME"],
-            "score_1": top_matches[0]["score"],
 
-            "LOINC_top2": top_matches[1]["LOINC_NUM"],
-            "LOINC_name_2": top_matches[1]["LONG_COMMON_NAME"],
-            "score_2": top_matches[1]["score"],
+            "LOINC_top1": top_matches[0].get("LOINC_NUM","NONE"),
+            "LOINC_name_1": top_matches[0].get("LONG_COMMON_NAME",""),
+            "score_1": top_matches[0].get("score",0),
+            "confidence_1": top_matches[0].get("confidence","Very Low"),
+            "status_1": top_matches[0].get("status","UNKNOWN"),
+            "domain_1": top_matches[0].get("domain","UNKNOWN"),
 
-            "LOINC_top3": top_matches[2]["LOINC_NUM"],
-            "LOINC_name_3": top_matches[2]["LONG_COMMON_NAME"],
-            "score_3": top_matches[2]["score"],
+
+            "LOINC_top2": top_matches[1].get("LOINC_NUM","NONE"),
+            "LOINC_name_2": top_matches[1].get("LONG_COMMON_NAME",""),
+            "score_2": top_matches[1].get("score",0),
+            "confidence_2": top_matches[1].get("confidence","Very Low"),
+            "status_2": top_matches[1].get("status","UNKNOWN"),
+            "domain_2": top_matches[1].get("domain","UNKNOWN"),
+
+
+            "LOINC_top3": top_matches[2].get("LOINC_NUM","NONE"),
+            "LOINC_name_3": top_matches[2].get("LONG_COMMON_NAME",""),
+            "score_3": top_matches[2].get("score",0),
+            "confidence_3": top_matches[2].get("confidence","Very Low"),
+            "status_3": top_matches[2].get("status","UNKNOWN"),
+            "domain_3": top_matches[2].get("domain","UNKNOWN"),
+
+
+            "primary_domain": top_matches[0].get("domain","UNKNOWN")
+
         })
+
 
     except Exception as e:
         print(f"❌ Error on {code} | {record_name}: {e}")
