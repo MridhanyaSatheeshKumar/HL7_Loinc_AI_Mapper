@@ -1,13 +1,13 @@
 import pandas as pd
 
 # ==============================
-# 📥 LOAD DATA
+# LOAD DATA
 # ==============================
 
 pred_df = pd.read_excel("data/output/phr_mapped.xlsx")
 
 true_df = pd.read_excel(
-    "data/input/LoincSubmission_sheet.xlsx",
+    "data/input/LoincSubmission-PGHDterms_Updated_5-16.xlsx",
     sheet_name="PGHR Code Mapping Table"
 )
 
@@ -15,7 +15,7 @@ print("Pred columns:", pred_df.columns.tolist())
 print("True columns:", true_df.columns.tolist())
 
 # ==============================
-# 🔗 MERGE
+# MERGE
 # ==============================
 
 df = pd.merge(
@@ -29,7 +29,7 @@ print("\nMerged columns:", df.columns.tolist())
 
 
 # ==============================
-# 🔧 CLEAN LOINC FUNCTION
+# CLEAN LOINC FUNCTION
 # ==============================
 
 def clean_codes(code_str):
@@ -41,7 +41,7 @@ def clean_codes(code_str):
 
     code_str = str(code_str)
 
-    # 🚨 FIX datetime issue like: 8302-02-01 00:00:00
+    # FIX datetime issue like: 8302-02-01 00:00:00
     code_str = code_str.split(" ")[0]
 
     code_str = code_str.replace("[", "").replace("]", "").strip()
@@ -55,19 +55,34 @@ def clean_codes(code_str):
 
 
 # ==============================
-# 🎯 MATCHING LOGIC
+# MATCHING LOGIC
 # ==============================
 
 def exact_match(row):
     true_codes = clean_codes(row["LOINC"])
-    pred_code = str(row["LOINC_pred"]).strip()
+    pred_code = str(row["LOINC_top1"]).strip()
 
     return pred_code in true_codes
 
+def top3_match(row):
+
+    true_codes = clean_codes(row["LOINC"])
+
+    preds = [
+        str(row.get("LOINC_top1", "")).strip(),
+        str(row.get("LOINC_top2", "")).strip(),
+        str(row.get("LOINC_top3", "")).strip()
+    ]
+
+    for pred in preds:
+        if pred in true_codes:
+            return True
+
+    return False
 
 def partial_match(row):
     true_codes = clean_codes(row["LOINC"])
-    pred_prefix = str(row["LOINC_pred"]).split("-")[0]
+    pred_prefix = str(row["LOINC_top1"]).split("-")[0]
 
     for code in true_codes:
         if code.startswith(pred_prefix):
@@ -75,49 +90,50 @@ def partial_match(row):
     return False
 
 
-# 🔥 APPLY FIRST
+# APPLY FIRST
 df["exact_match"] = df.apply(exact_match, axis=1)
+df["top3_match"] = df.apply(top3_match, axis=1)
 df["partial_match"] = df.apply(partial_match, axis=1)
 
 
 # ==============================
-# 🧠 TYPE CHECK
+# TYPE CHECK
 # ==============================
 
 def type_check(row):
-    name = str(row["LOINC_name"]).lower()
+    name = str(row["LOINC_name_1"]).lower()
 
     if any(x in name for x in ["survey", "question", "promis", "panel"]):
-        return "❌ survey"
+        return "survey"
     elif any(x in name for x in ["enzyme", "serum", "blood", "plasma"]):
-        return "❌ lab"
+        return "lab"
     elif any(x in name for x in ["activity", "distance", "energy", "steps", "cadence", "mass", "height"]):
-        return "✅ measurement"
+        return "measurement"
     else:
-        return "⚠️ unclear"
+        return "clear"
 
 
 df["type"] = df.apply(type_check, axis=1)
 
 
 # ==============================
-# 🏁 FINAL LABEL
+# FINAL LABEL
 # ==============================
 
 def final_label(row):
     if row["exact_match"]:
-        return "✅ correct"
+        return "correct"
     elif row["partial_match"]:
-        return "⚠️ close"
+        return "close"
     else:
-        return "❌ wrong"
+        return "wrong"
 
 
 df["final_result"] = df.apply(final_label, axis=1)
 
 
 # ==============================
-# 🎯 FILTER VALID ROWS
+# FILTER VALID ROWS
 # ==============================
 
 valid_df = df[df["LOINC"].notna() & (df["LOINC"] != "-")]
@@ -126,14 +142,17 @@ print("\nValid rows:", len(valid_df))
 
 
 # ==============================
-# 📊 METRICS
+# METRICS
 # ==============================
 
 total = len(valid_df)
 exact = valid_df["exact_match"].sum()
 partial = valid_df["partial_match"].sum()
+top3 = valid_df["top3_match"].sum()
 
-print("\n📊 RESULTS (VALID ROWS ONLY):")
+print("Top-3:", top3, f"({top3/total:.2%})")
+
+print("\n RESULTS (VALID ROWS ONLY):")
 print("Total valid:", total)
 
 if total > 0:
@@ -144,15 +163,14 @@ else:
 
 
 # ==============================
-# 🔍 SAMPLE ROWS
+# SAMPLE ROWS
 # ==============================
 
-print("\n🔍 SAMPLE ROWS:")
-print(valid_df[["Code value", "LOINC", "LOINC_pred"]].head(10))
-
+print("\n SAMPLE ROWS:")
+print(valid_df[["Code value", "LOINC", "LOINC_top1"]].head(10))
 
 # ==============================
-# 📊 BREAKDOWNS
+# BREAKDOWNS
 # ==============================
 
 print("\nFinal result breakdown:")
@@ -163,7 +181,7 @@ print(df["type"].value_counts())
 
 
 # ==============================
-# 💾 SAVE
+# SAVE
 # ==============================
 
 df.to_excel("data/output/phr_evaluated.xlsx", index=False)

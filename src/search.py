@@ -4,6 +4,19 @@ import re
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
 
+# Load known mappings
+try:
+    known_map_df = pd.read_csv("data/processed/known_loinc_mappings.csv")
+
+    known_mappings = dict(
+        zip(
+            known_map_df["code_value"].str.lower(),
+            known_map_df["loinc"]
+        )
+    )
+except:
+    known_mappings = {}
+
 print("Loading LOINC search resources...")
 
 df = pd.read_csv("data/processed/loinc_cleaned.csv")
@@ -26,65 +39,133 @@ def classify_domain(text):
 
     t = text.lower()
 
-    # Measurement domains (LOINC likely exists)
+    # NUTRITION (LOINC exists)
+    nutrition_keywords = [
+
+        "dietary","vitamin","mineral","protein",
+        "fat","carbohydrate","fiber","sodium",
+        "iron","calcium","magnesium","potassium",
+        "nutrition","water","caffeine","cholesterol"
+    ]
+
+    # WOMEN HEALTH (some LOINC exists)
+    womens_keywords = [
+
+        "menstrual","pregnancy","ovulation",
+        "contraceptive","progesterone",
+        "lactation","bleeding"
+    ]
+
+    # SLEEP
+    sleep_keywords = [
+
+        "sleep","rem","snore","ahi",
+        "apnea","arousal"
+    ]
+
+    # ENVIRONMENT
+    environment_keywords = [
+
+        "audio","noise","uv","temperature",
+        "exposure","environment"
+    ]
+
+    # MEASUREMENT (LOINC strong coverage)
     measurement_keywords = [
 
         "rate","pressure","temperature","distance","energy",
         "oxygen","vo2","heart","pulse","cadence","speed",
         "power","glucose","weight","height","bmi",
-        "respiratory","flow","volume","sleep","snore",
-        "blood","body","water","nutrition","vitamin"
+        "respiratory","flow","volume",
+        "blood","body","water","hydration",
+        "fat","mass","circumference"
     ]
 
-    # Activity domains (sometimes LOINC exists)
+    # ACTIVITY (moderate LOINC coverage)
     activity_keywords = [
 
         "running","walking","swimming","exercise",
         "fitness","training","sports","workout",
-        "cycling","rowing","yoga"
+        "cycling","rowing","yoga","strength",
+        "stairs","climbing","lap","repetition",
+        "effort","met","pace"
     ]
 
-    # Symptoms (sometimes LOINC)
+    # SYMPTOMS (partial LOINC coverage)
     symptom_keywords = [
 
         "pain","fever","fatigue","nausea","cough",
-        "dizziness","vomiting","headache"
+        "dizziness","vomiting","headache",
+        "constipation","diarrhea","chills",
+        "breath","wheezing","fainting"
     ]
 
-    # Emotions (LOINC usually no)
+    # EMOTION (LOINC usually none)
     emotion_keywords = [
 
-        "happy","sad","angry","anxious","stressed",
-        "worried","joyful","frustrated","content"
+        "happy","sad","angry","anxious",
+        "stressed","worried","joyful",
+        "frustrated","content","emotion",
+        "mood","calm","excited"
     ]
 
-    # Lifestyle categories (no LOINC)
+    # LIFESTYLE (LOINC none)
     lifestyle_keywords = [
 
-        "family","work","community","travel",
-        "hobbies","money","dating","weather"
+        "family","work","community",
+        "travel","hobbies","money",
+        "dating","weather","identity",
+        "friends","partner","education"
     ]
+
+
+    # CLASSIFICATION ORDER MATTERS
+    # (more specific first)
+
+    if any(x in t for x in nutrition_keywords):
+
+        return "NUTRITION"
+
+
+    if any(x in t for x in womens_keywords):
+
+        return "WOMENS_HEALTH"
+
+
+    if any(x in t for x in sleep_keywords):
+
+        return "SLEEP"
+
+
+    if any(x in t for x in environment_keywords):
+
+        return "ENVIRONMENT"
 
 
     if any(x in t for x in measurement_keywords):
 
         return "MEASUREMENT"
 
+
     if any(x in t for x in activity_keywords):
 
         return "ACTIVITY"
+
 
     if any(x in t for x in symptom_keywords):
 
         return "SYMPTOM"
 
+
     if any(x in t for x in emotion_keywords):
 
         return "EMOTION"
 
+
     if any(x in t for x in lifestyle_keywords):
 
         return "LIFESTYLE"
+
 
     return "UNKNOWN"
 
@@ -391,7 +472,7 @@ def search_loinc(query, top_k=10):
 
         ascending=False
 
-    )
+    ).head(top_k)
 
 
     if results.iloc[0]["final_score"] < 0.50:
@@ -434,12 +515,23 @@ def search_loinc(query, top_k=10):
     ]]
 
 
-def map_loinc(code_value, record_name, top_k=3):
-
-    query = f"{code_value} {record_name}"
-
-    domain = classify_domain(query)
-
+def map_loinc(code_value, record_name, description="", sdk_text="", source="", top_k=3):
+    query = " ".join([
+        str(code_value),
+        str(record_name),
+        str(description),
+        str(sdk_text),
+        str(source),
+        "patient",
+        "observation",
+        "health",
+        "measurement",
+        "wearable",
+        "healthkit",
+        "healthconnect"
+    ])
+    domain = classify_domain(f"{code_value} {record_name}")
+    code_key = str(code_value).strip().lower()
 
     # Skip domains that shouldn't map to LOINC
     if domain in ["EMOTION","LIFESTYLE"]:
@@ -465,24 +557,37 @@ def map_loinc(code_value, record_name, top_k=3):
 
     candidates = []
 
+    for _, row in results.fillna("").iterrows():
 
-    for _, row in results.iterrows():
+        code_key = str(code_value).strip().lower()
+
+        row_score_boost = 0
+
+        if code_key in known_mappings:
+            if code_key in known_mappings:
+                if row.get("LOINC_NUM") == known_mappings[code_key]:
+                    row_score_boost = 1.5
+
+        base_score = row.get("final_score", 0)
+        final_score = base_score + row_score_boost
 
         candidates.append({
 
             "LOINC_NUM": row.get("LOINC_NUM","NONE"),
-
             "LONG_COMMON_NAME": row.get("LONG_COMMON_NAME",""),
 
-            "score": row.get("final_score",0),
+            "score": final_score,   # use boosted score
 
             "confidence": row.get("confidence","Very Low"),
-
             "status": row.get("status","NO_MATCH"),
-
-            "domain":domain
+            "domain": domain
 
         })
 
+    candidates = sorted(
+        candidates,
+        key=lambda x: x["score"],
+        reverse=True
+    )
 
     return candidates

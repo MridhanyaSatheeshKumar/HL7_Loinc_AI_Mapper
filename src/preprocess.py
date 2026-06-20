@@ -22,7 +22,7 @@ df = df.dropna(subset=["LONG_COMMON_NAME"])
 
 print("Filtering PGHD related concepts...")
 
-# ✅ Keep PGHD domains (expanded properly)
+# Keep PGHD domains (expanded properly)
 df = df[df["LONG_COMMON_NAME"].str.contains(
 
     "activity|exercise|physical|distance|steps|stairs|walking|running|"
@@ -31,7 +31,13 @@ df = df[df["LONG_COMMON_NAME"].str.contains(
     "sleep|rest|"
     "speed|cadence|power|pace|"
     "temperature|respiratory|breathing|"
-    "effort|endurance",
+    "effort|endurance"
+    "weight|body weight|"
+    "mass|body mass|"
+    "bmi|body mass index|"
+    "body fat|fat percentage|"
+    "height|stature|"
+    "glucose|blood glucose|",
 
     case=False,
     na=False
@@ -40,7 +46,7 @@ df = df[df["LONG_COMMON_NAME"].str.contains(
 
 print("Removing noisy clinical/lab concepts...")
 
-# ❌ Remove lab tests
+# Remove lab tests
 df = df[~df["LONG_COMMON_NAME"].str.contains(
 
     "serum|plasma|urine|blood test|antibody|enzyme|culture|"
@@ -50,7 +56,7 @@ df = df[~df["LONG_COMMON_NAME"].str.contains(
     na=False
 )]
 
-# ❌ Remove surveys/questionnaires
+# Remove surveys/questionnaires
 df = df[~df["LONG_COMMON_NAME"].str.contains(
 
     "promis|phenx|questionnaire|survey|assessment",
@@ -59,7 +65,7 @@ df = df[~df["LONG_COMMON_NAME"].str.contains(
     na=False
 )]
 
-# ❌ Remove administrative notes
+# Remove administrative notes
 df = df[~df["LONG_COMMON_NAME"].str.contains(
 
     "note|narrative|report|finding|interpretation",
