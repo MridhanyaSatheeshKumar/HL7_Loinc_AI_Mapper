@@ -1,5 +1,6 @@
 import pandas as pd
 from search import map_loinc
+from explain import build_explanation
 
 # Load input Excel
 df_map = pd.read_excel(
@@ -115,6 +116,27 @@ for _, row in df.iterrows():
                 "domain": "UNKNOWN"
             })
 
+        explanation_1 = build_explanation(
+            code,
+            record_name,
+            top_matches[0].get("LOINC_NUM",""),
+            top_matches[0].get("LONG_COMMON_NAME","")
+        )
+
+        explanation_2 = build_explanation(
+            code,
+            record_name,
+            top_matches[1].get("LOINC_NUM",""),
+            top_matches[1].get("LONG_COMMON_NAME","")
+        )
+
+        explanation_3 = build_explanation(
+            code,
+            record_name,
+            top_matches[2].get("LOINC_NUM",""),
+            top_matches[2].get("LONG_COMMON_NAME","")
+        )
+
         results.append({
 
             "Code value": code,
@@ -122,6 +144,7 @@ for _, row in df.iterrows():
 
             "LOINC_top1": top_matches[0].get("LOINC_NUM", "NONE"),
             "LOINC_name_1": top_matches[0].get("LONG_COMMON_NAME", ""),
+            "Explanation_1": explanation_1,
             "score_1": top_matches[0].get("score", 0),
             "confidence_1": top_matches[0].get("confidence", "Very Low"),
             "status_1": top_matches[0].get("status", "UNKNOWN"),
@@ -129,6 +152,7 @@ for _, row in df.iterrows():
 
             "LOINC_top2": top_matches[1].get("LOINC_NUM", "NONE"),
             "LOINC_name_2": top_matches[1].get("LONG_COMMON_NAME", ""),
+            "Explanation_2": explanation_2,
             "score_2": top_matches[1].get("score", 0),
             "confidence_2": top_matches[1].get("confidence", "Very Low"),
             "status_2": top_matches[1].get("status", "UNKNOWN"),
@@ -136,6 +160,7 @@ for _, row in df.iterrows():
 
             "LOINC_top3": top_matches[2].get("LOINC_NUM", "NONE"),
             "LOINC_name_3": top_matches[2].get("LONG_COMMON_NAME", ""),
+            "Explanation_3": explanation_3,
             "score_3": top_matches[2].get("score", 0),
             "confidence_3": top_matches[2].get("confidence", "Very Low"),
             "status_3": top_matches[2].get("status", "UNKNOWN"),
@@ -153,3 +178,15 @@ for _, row in df.iterrows():
         print(
             f"Error on {code} | {record_name}: {e}"
         )
+
+# Save output
+final_df = pd.DataFrame(results)
+
+final_df.to_excel(
+    "data/output/phr_mapped.xlsx",
+    index=False
+)
+
+print(
+    "Done! Output saved to data/output/phr_mapped.xlsx"
+)
